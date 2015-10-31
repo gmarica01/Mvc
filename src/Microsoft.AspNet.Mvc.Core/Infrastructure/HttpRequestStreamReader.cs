@@ -313,8 +313,6 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
                         }
 
                         // _isBlocked == whether we read fewer bytes than we asked for.
-                        // Note we must check it here because CompressBuffer or 
-                        // DetectEncoding will change _byteLen.
                         _isBlocked = (_bytesRead < _byteBufferSize);
 
                         Debug.Assert(n == 0);
@@ -392,6 +390,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
                     _charBuffer.Offset + _charsRead);
             }
             while (_charsRead == 0);
+
             return _charsRead;
         }
 
