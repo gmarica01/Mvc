@@ -97,7 +97,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
         }
 
         [Fact]
-        public static void VanillaReads1()
+        public static void Read_ReadAllCharactersAtOnce()
         {
             // Arrange
             var reader = CreateReader();
@@ -115,7 +115,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
         }
 
         [Fact]
-        public static async Task VanillaReads2WithAsync()
+        public static async Task Read_ReadInTwoChunks()
         {
             // Arrange
             var reader = CreateReader();
@@ -133,7 +133,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
         }
 
         [Fact]
-        public static void VanillaReadLines()
+        public static void ReadLine_ReadMultipleLines()
         {
             // Arrange
             var reader = CreateReader();
@@ -154,7 +154,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
         }
 
         [Fact]
-        public static void VanillaReadLines2()
+        public static void ReadLine_ReadWithNoNewlines()
         {
             // Arrange
             var reader = CreateReader();
@@ -170,7 +170,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
         }
 
         [Fact]
-        public static async Task ContinuousNewLinesAndTabsAsync()
+        public static async Task ReadLineAsync_MultipleContinuousLines()
         {
             // Arrange
             var stream = new MemoryStream();
@@ -185,7 +185,7 @@ namespace Microsoft.AspNet.Mvc.Infrastructure
             for (var i = 0; i < 4; i++)
             {
                 var data = await reader.ReadLineAsync();
-                Assert.Equal(String.Empty, data);
+                Assert.Equal(string.Empty, data);
             }
 
             var eol = await reader.ReadLineAsync();
