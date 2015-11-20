@@ -1056,6 +1056,19 @@ namespace Microsoft.AspNet.Mvc.Test
         }
 
         [Fact]
+        public void Controller_NoContent()
+        {
+            // Arrange
+            var controller = new TestableController();
+
+            // Act
+            var result = controller.NoContent();
+
+            // Assert
+            Assert.Equal(StatusCodes.Status204NoContent, result.StatusCode);
+        }
+
+        [Fact]
         public void Controller_Content_WithParameterContentString_SetsResultContent()
         {
             // Arrange
@@ -1755,6 +1768,22 @@ namespace Microsoft.AspNet.Mvc.Test
             Assert.Equal(1, controller.ModelState.Count);
             var error = Assert.Single(controller.ModelState["IntegerProperty"].Errors);
             Assert.Equal("Out of range!", error.ErrorMessage);
+        }
+
+        [Fact]
+        public void TryValidateModel_Succeeds_WithoutValidatorMetadata()
+        {
+            // Arrange
+            // Do not add a Mock validator provider to this test. Test is intended to demonstrate ease of unit testing
+            // and exercise DataAnnotationsModelValidatorProvider, avoiding #3586 regressions.
+            var model = new TryValidateModelModel();
+            var controller = GetController(binder: null, provider: null);
+
+            // Act
+            var result = controller.TryValidateModel(model);
+
+            // Assert
+            Assert.True(controller.ModelState.IsValid);
         }
 
         [Fact]

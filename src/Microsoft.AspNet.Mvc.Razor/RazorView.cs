@@ -22,7 +22,6 @@ namespace Microsoft.AspNet.Mvc.Razor
     {
         private readonly IRazorViewEngine _viewEngine;
         private readonly IRazorPageActivator _pageActivator;
-        private readonly IViewStartProvider _viewStartProvider;
         private readonly HtmlEncoder _htmlEncoder;
         private IPageExecutionListenerFeature _pageExecutionFeature;
 
@@ -31,25 +30,47 @@ namespace Microsoft.AspNet.Mvc.Razor
         /// </summary>
         /// <param name="viewEngine">The <see cref="IRazorViewEngine"/> used to locate Layout pages.</param>
         /// <param name="pageActivator">The <see cref="IRazorPageActivator"/> used to activate pages.</param>
-        /// <param name="viewStartProvider">The <see cref="IViewStartProvider"/> used for discovery of _ViewStart
+        /// <param name="viewStartPages">The sequence of <see cref="IRazorPage" /> instances executed as _ViewStarts.
+        /// </param>
         /// <param name="razorPage">The <see cref="IRazorPage"/> instance to execute.</param>
         /// <param name="htmlEncoder">The HTML encoder.</param>
-        /// <param name="isPartial">Determines if the view is to be executed as a partial.</param>
-        /// pages</param>
         public RazorView(
             IRazorViewEngine viewEngine,
             IRazorPageActivator pageActivator,
-            IViewStartProvider viewStartProvider,
+            IReadOnlyList<IRazorPage> viewStartPages,
             IRazorPage razorPage,
-            HtmlEncoder htmlEncoder,
-            bool isPartial)
+            HtmlEncoder htmlEncoder)
         {
+            if (viewEngine == null)
+            {
+                throw new ArgumentNullException(nameof(viewEngine));
+            }
+
+            if (pageActivator == null)
+            {
+                throw new ArgumentNullException(nameof(pageActivator));
+            }
+
+            if (viewStartPages == null)
+            {
+                throw new ArgumentNullException(nameof(viewStartPages));
+            }
+
+            if (razorPage == null)
+            {
+                throw new ArgumentNullException(nameof(razorPage));
+            }
+
+            if (htmlEncoder == null)
+            {
+                throw new ArgumentNullException(nameof(htmlEncoder));
+            }
+
             _viewEngine = viewEngine;
             _pageActivator = pageActivator;
-            _viewStartProvider = viewStartProvider;
+            ViewStartPages = viewStartPages;
             RazorPage = razorPage;
             _htmlEncoder = htmlEncoder;
-            IsPartial = isPartial;
         }
 
         /// <inheritdoc />
@@ -64,9 +85,9 @@ namespace Microsoft.AspNet.Mvc.Razor
         public IRazorPage RazorPage { get; }
 
         /// <summary>
-        /// Gets a value that determines if the view is executed as a partial.
+        /// Gets the sequence of _ViewStart <see cref="IRazorPage"/> instances that are executed by this view.
         /// </summary>
-        public bool IsPartial { get; }
+        public IReadOnlyList<IRazorPage> ViewStartPages { get; }
 
         private bool EnableInstrumentation
         {
@@ -83,16 +104,14 @@ namespace Microsoft.AspNet.Mvc.Razor
 
             _pageExecutionFeature = context.HttpContext.Features.Get<IPageExecutionListenerFeature>();
 
-            // Partials don't execute _ViewStart pages, but may execute Layout pages if the Layout property
-            // is explicitly specified in the page.
-            var bodyWriter = await RenderPageAsync(RazorPage, context, executeViewStart: !IsPartial);
+            var bodyWriter = await RenderPageAsync(RazorPage, context, ViewStartPages);
             await RenderLayoutAsync(context, bodyWriter);
         }
 
         private async Task<IBufferedTextWriter> RenderPageAsync(
             IRazorPage page,
             ViewContext context,
-            bool executeViewStart)
+            IReadOnlyList<IRazorPage> viewStartPages)
         {
             var razorTextWriter = new RazorTextWriter(context.Writer, context.Writer.Encoding, _htmlEncoder);
             var writer = (TextWriter)razorTextWriter;
@@ -121,10 +140,10 @@ namespace Microsoft.AspNet.Mvc.Razor
 
             try
             {
-                if (executeViewStart)
+                if (viewStartPages != null)
                 {
                     // Execute view starts using the same context + writer as the page to render.
-                    await RenderViewStartAsync(context);
+                    await RenderViewStartsAsync(context, viewStartPages);
                 }
 
                 await RenderPageCoreAsync(page, context);
@@ -140,7 +159,6 @@ namespace Microsoft.AspNet.Mvc.Razor
 
         private Task RenderPageCoreAsync(IRazorPage page, ViewContext context)
         {
-            page.IsPartial = IsPartial;
             page.ViewContext = context;
             if (EnableInstrumentation)
             {
@@ -151,21 +169,25 @@ namespace Microsoft.AspNet.Mvc.Razor
             return page.ExecuteAsync();
         }
 
-        private async Task RenderViewStartAsync(ViewContext context)
+        private async Task RenderViewStartsAsync(ViewContext context, IReadOnlyList<IRazorPage> viewStartPages)
         {
-            var viewStarts = _viewStartProvider.GetViewStartPages(RazorPage.Path);
-
             string layout = null;
             var oldFilePath = context.ExecutingFilePath;
             try
             {
-                foreach (var viewStart in viewStarts)
+                for (var i = 0; i < viewStartPages.Count; i++)
                 {
+                    var viewStart = ViewStartPages[i];
                     context.ExecutingFilePath = viewStart.Path;
+
                     // Copy the layout value from the previous view start (if any) to the current.
                     viewStart.Layout = layout;
+
                     await RenderPageCoreAsync(viewStart, context);
-                    layout = viewStart.Layout;
+
+                    // Pass correct absolute path to next layout or the entry page if this view start set Layout to a
+                    // relative path.
+                    layout = _viewEngine.GetAbsolutePath(viewStart.Path, viewStart.Layout);
                 }
             }
             finally
@@ -173,13 +195,13 @@ namespace Microsoft.AspNet.Mvc.Razor
                 context.ExecutingFilePath = oldFilePath;
             }
 
-            // Copy over interesting properties from the ViewStart page to the entry page.
+            // Copy the layout value from the view start page(s) (if any) to the entry page.
             RazorPage.Layout = layout;
         }
 
         private async Task RenderLayoutAsync(
             ViewContext context,
-                                             IBufferedTextWriter bodyWriter)
+            IBufferedTextWriter bodyWriter)
         {
             // A layout page can specify another layout page. We'll need to continue
             // looking for layout pages until they're no longer specified.
@@ -198,7 +220,7 @@ namespace Microsoft.AspNet.Mvc.Razor
                     throw new InvalidOperationException(message);
                 }
 
-                var layoutPage = GetLayoutPage(context, previousPage.Layout);
+                var layoutPage = GetLayoutPage(context, previousPage.Path, previousPage.Layout);
 
                 if (renderedLayouts.Count > 0 &&
                     renderedLayouts.Any(l => string.Equals(l.Path, layoutPage.Path, StringComparison.Ordinal)))
@@ -214,7 +236,7 @@ namespace Microsoft.AspNet.Mvc.Razor
                 previousPage.IsLayoutBeingRendered = true;
                 layoutPage.PreviousSectionWriters = previousPage.SectionWriters;
                 layoutPage.RenderBodyDelegateAsync = bodyWriter.CopyToAsync;
-                bodyWriter = await RenderPageAsync(layoutPage, context, executeViewStart: false);
+                bodyWriter = await RenderPageAsync(layoutPage, context, viewStartPages: null);
 
                 renderedLayouts.Add(layoutPage);
                 previousPage = layoutPage;
@@ -233,13 +255,29 @@ namespace Microsoft.AspNet.Mvc.Razor
             }
         }
 
-        private IRazorPage GetLayoutPage(ViewContext context, string layoutPath)
+        private IRazorPage GetLayoutPage(ViewContext context, string executingFilePath, string layoutPath)
         {
-            var layoutPageResult = _viewEngine.FindPage(context, layoutPath);
+            var layoutPageResult = _viewEngine.GetPage(executingFilePath, layoutPath);
+            var originalLocations = layoutPageResult.SearchedLocations;
             if (layoutPageResult.Page == null)
             {
-                var locations = Environment.NewLine +
-                                string.Join(Environment.NewLine, layoutPageResult.SearchedLocations);
+                layoutPageResult = _viewEngine.FindPage(context, layoutPath);
+            }
+
+            if (layoutPageResult.Page == null)
+            {
+                var locations = string.Empty;
+                if (originalLocations.Any())
+                {
+                    locations = Environment.NewLine + string.Join(Environment.NewLine, originalLocations);
+                }
+
+                if (layoutPageResult.SearchedLocations.Any())
+                {
+                    locations +=
+                        Environment.NewLine + string.Join(Environment.NewLine, layoutPageResult.SearchedLocations);
+                }
+
                 throw new InvalidOperationException(Resources.FormatLayoutCannotBeLocated(layoutPath, locations));
             }
 

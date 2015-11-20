@@ -130,7 +130,7 @@ namespace Microsoft.AspNet.Mvc
         public class OnViewFoundEventData
         {
             public IProxyActionContext ActionContext { get; set; }
-            public bool IsPartial { get; set; }
+            public bool IsMainPage { get; set; }
             public IProxyActionResult Result { get; set; }
             public string ViewName { get; set; }
             public IProxyView View { get; set; }
@@ -141,15 +141,15 @@ namespace Microsoft.AspNet.Mvc
         [DiagnosticName("Microsoft.AspNet.Mvc.ViewFound")]
         public virtual void OnViewFound(
             IProxyActionContext actionContext,
-            bool isPartial,
+            bool isMainPage,
             IProxyActionResult result,
             string viewName,
             IProxyView view)
         {
-           ViewFound = new OnViewFoundEventData()
+            ViewFound = new OnViewFoundEventData()
             {
                 ActionContext = actionContext,
-                IsPartial = isPartial,
+                IsMainPage = isMainPage,
                 Result = result,
                 ViewName = viewName,
                 View = view,
@@ -159,7 +159,7 @@ namespace Microsoft.AspNet.Mvc
         public class OnViewNotFoundEventData
         {
             public IProxyActionContext ActionContext { get; set; }
-            public bool IsPartial { get; set; }
+            public bool IsMainPage { get; set; }
             public IProxyActionResult Result { get; set; }
             public string ViewName { get; set; }
             public IEnumerable<string> SearchedLocations { get; set; }
@@ -170,7 +170,7 @@ namespace Microsoft.AspNet.Mvc
         [DiagnosticName("Microsoft.AspNet.Mvc.ViewNotFound")]
         public virtual void OnViewNotFound(
             IProxyActionContext actionContext,
-            bool isPartial,
+            bool isMainPage,
             IProxyActionResult result,
             string viewName,
             IEnumerable<string> searchedLocations)
@@ -178,7 +178,7 @@ namespace Microsoft.AspNet.Mvc
             ViewNotFound = new OnViewNotFoundEventData()
             {
                 ActionContext = actionContext,
-                IsPartial = isPartial,
+                IsMainPage = isMainPage,
                 Result = result,
                 ViewName = viewName,
                 SearchedLocations = searchedLocations,
@@ -323,6 +323,61 @@ namespace Microsoft.AspNet.Mvc
                 ViewComponentContext = viewComponentContext,
                 View = view
             };
+        }
+
+        public class BeginPageInstrumentationData
+        {
+            public IProxyHttpContext HttpContext { get; set; }
+
+            public string Path { get; set; }
+
+            public int Position { get; set; }
+
+            public int Length { get; set; }
+
+            public bool IsLiteral { get; set; }
+        }
+
+        public class EndPageInstrumentationData
+        {
+            public IProxyHttpContext HttpContext { get; set; }
+
+            public string Path { get; set; }
+        }
+
+        public List<object> PageInstrumentationData { get; set; } = new List<object>();
+
+        [DiagnosticName("Microsoft.AspNet.Mvc.Razor.BeginInstrumentationContext")]
+        public virtual void OnBeginPageInstrumentationContext(
+            IProxyHttpContext httpContext,
+            string path,
+            int position,
+            int length,
+            bool isLiteral)
+        {
+            PageInstrumentationData.Add(new BeginPageInstrumentationData
+            {
+                HttpContext = httpContext,
+                Path = path,
+                Position = position,
+                Length = length,
+                IsLiteral = isLiteral,
+            });
+        }
+
+        [DiagnosticName("Microsoft.AspNet.Mvc.Razor.EndInstrumentationContext")]
+        public virtual void OnEndPageInstrumentationContext(
+            IProxyHttpContext httpContext,
+            string path,
+            int position,
+            int length,
+            bool isLiteral)
+        {
+            PageInstrumentationData.Add(new EndPageInstrumentationData
+            {
+                HttpContext = httpContext,
+                Path = path,
+            });
         }
     }
 }

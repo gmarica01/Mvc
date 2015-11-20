@@ -42,7 +42,7 @@ namespace Microsoft.AspNet.Mvc
             };
 
             var actionContext = CreateActionContext(descriptor);
-            
+
             var viewComponentResult = new ViewComponentResult
             {
                 Arguments = new object[] { "World!" },
@@ -338,11 +338,11 @@ namespace Microsoft.AspNet.Mvc
                     },
                     {
                         new MediaTypeHeaderValue("text/foo"),
-                        "text/foo; charset=utf-8"
+                        "text/foo"
                     },
                     {
                         MediaTypeHeaderValue.Parse("text/foo;p1=p1-value"),
-                        "text/foo; p1=p1-value; charset=utf-8"
+                        "text/foo; p1=p1-value"
                     },
                     {
                         new MediaTypeHeaderValue("text/foo") { Encoding = Encoding.ASCII },
@@ -422,8 +422,13 @@ namespace Microsoft.AspNet.Mvc
             Assert.Equal(expectedContentType, actionContext.HttpContext.Response.ContentType);
         }
 
-        [Fact]
-        public async Task ViewComponentResult_NoContentTypeSet_PreservesResponseContentType()
+        [Theory]
+        [InlineData("text/foo", "text/foo; charset=utf-8")]
+        [InlineData("text/foo; p1=p1-value", "text/foo; p1=p1-value; charset=utf-8")]
+        [InlineData("text/foo; p1=p1-value; charset=us-ascii", "text/foo; p1=p1-value; charset=us-ascii")]
+        public async Task ViewComponentResult_NoContentTypeSet_PreservesResponseContentType(
+            string responseContentType,
+            string expectedContentType)
         {
             // Arrange
             var descriptor = new ViewComponentDescriptor()
@@ -435,7 +440,6 @@ namespace Microsoft.AspNet.Mvc
 
             var actionContext = CreateActionContext(descriptor);
 
-            var expectedContentType = "application/x-will-not-be-overridden";
             actionContext.HttpContext.Response.ContentType = expectedContentType;
 
             var viewComponentResult = new ViewComponentResult()
@@ -453,7 +457,7 @@ namespace Microsoft.AspNet.Mvc
         }
 
         private IServiceCollection CreateServices(object diagnosticListener, HttpContext context, params ViewComponentDescriptor[] descriptors)
-        { 
+        {
             var httpContext = new HttpContextAccessor() { HttpContext = context };
             var tempDataProvider = new SessionStateTempDataProvider();
             var diagnosticSource = new DiagnosticListener("Microsoft.AspNet");
@@ -463,7 +467,7 @@ namespace Microsoft.AspNet.Mvc
             }
 
             var services = new ServiceCollection();
-            services.AddInstance<DiagnosticSource>(diagnosticSource);
+            services.AddSingleton<DiagnosticSource>(diagnosticSource);
             services.AddSingleton<IOptions<MvcViewOptions>, TestOptionsManager<MvcViewOptions>>();
             services.AddTransient<IViewComponentHelper, DefaultViewComponentHelper>();
             services.AddSingleton<IViewComponentSelector, DefaultViewComponentSelector>();
@@ -471,10 +475,10 @@ namespace Microsoft.AspNet.Mvc
             services.AddSingleton<IViewComponentInvokerFactory, DefaultViewComponentInvokerFactory>();
             services.AddSingleton<ITypeActivatorCache, DefaultTypeActivatorCache>();
             services.AddSingleton<IViewComponentActivator, DefaultViewComponentActivator>();
-            services.AddInstance<IViewComponentDescriptorProvider>(new FixedSetViewComponentDescriptorProvider(descriptors));
+            services.AddSingleton<IViewComponentDescriptorProvider>(new FixedSetViewComponentDescriptorProvider(descriptors));
             services.AddSingleton<IModelMetadataProvider, EmptyModelMetadataProvider>();
-            services.AddInstance<ILoggerFactory>(NullLoggerFactory.Instance);
-            services.AddInstance<ITempDataDictionary>(new TempDataDictionary(httpContext, tempDataProvider));
+            services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
+            services.AddSingleton<ITempDataDictionary>(new TempDataDictionary(httpContext, tempDataProvider));
             services.AddTransient<IHttpContextAccessor, HttpContextAccessor>();
 
             return services;

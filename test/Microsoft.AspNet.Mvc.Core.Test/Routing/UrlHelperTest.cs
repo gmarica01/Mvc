@@ -741,7 +741,7 @@ namespace Microsoft.AspNet.Mvc.Routing
         [Fact]
         public void Action_RouteValueInvalidation_DoesNotAffectActionAndController()
         {
-            // Arrage
+            // Arrange
             var services = GetServices();
             var routeBuilder = new RouteBuilder()
             {
@@ -976,7 +976,6 @@ namespace Microsoft.AspNet.Mvc.Routing
                     {
                         HttpContext = new DefaultHttpContext()
                         {
-                            ApplicationServices = services.Object,
                             RequestServices = services.Object,
                         },
                         RouteData = new RouteData(),
@@ -985,7 +984,6 @@ namespace Microsoft.AspNet.Mvc.Routing
 
             return services.Object;
         }
-
 
         private static IRouter GetRouter(
             IServiceProvider services,

@@ -6,7 +6,8 @@
     "url": "git://github.com/aspnet/mvc"
   },
   "compilationOptions": {
-    "warningsAsErrors": true
+    "warningsAsErrors": true,
+    "keyFile": "../../tools/Key.snk"
   },
   "dependencies": {
     "Microsoft.AspNet.Mvc.Razor.Host": "6.0.0-*",
@@ -42,7 +43,7 @@
       "dependencies": {
         "System.Text.Encoding": "4.0.11-*",
         "System.Runtime.Loader": "4.0.0-*",
-        "System.Threading.Tasks.Parallel": "4.0.1-beta-*"
+        "System.Threading.Tasks.Parallel": "4.0.1-*"
       }
     }
   },

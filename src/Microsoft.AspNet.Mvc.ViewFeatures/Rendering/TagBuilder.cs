@@ -35,7 +35,7 @@ namespace Microsoft.AspNet.Mvc.Rendering
             }
 
             TagName = tagName;
-            InnerHtml = new BufferedHtmlContent();
+            InnerHtml = new HtmlContentBuilder();
         }
 
         /// <summary>
@@ -206,10 +206,7 @@ namespace Microsoft.AspNet.Mvc.Rendering
                     writer.Write(" ");
                     writer.Write(key);
                     writer.Write("=\"");
-                    if (!string.IsNullOrEmpty(attribute.Value))
-                    {
-                        encoder.Encode(writer, attribute.Value);
-                    }
+                    encoder.Encode(writer, attribute.Value);
                     writer.Write("\"");
                 }
             }

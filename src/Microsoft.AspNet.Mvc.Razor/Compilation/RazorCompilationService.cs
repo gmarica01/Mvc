@@ -8,7 +8,7 @@ using System.Linq;
 using Microsoft.AspNet.FileProviders;
 using Microsoft.AspNet.Razor;
 using Microsoft.AspNet.Razor.CodeGenerators;
-using Microsoft.Dnx.Compilation;
+using Microsoft.Extensions.CompilationAbstractions;
 using Microsoft.Extensions.PlatformAbstractions;
 using Microsoft.Extensions.OptionsModel;
 
@@ -100,7 +100,7 @@ namespace Microsoft.AspNet.Mvc.Razor.Compilation
                 failures.Add(compilationFailure);
             }
 
-            return CompilationResult.Failed(failures);
+            return new CompilationResult(failures);
         }
 
         private DiagnosticMessage CreateDiagnosticMessage(RazorError error, string filePath)

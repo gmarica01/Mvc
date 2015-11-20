@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Linq;
 using Microsoft.AspNet.Mvc;
 using Microsoft.AspNet.Mvc.ViewEngines;
 
@@ -9,22 +10,22 @@ namespace CompositeViewEngineWebSite
 {
     public class TestViewEngine : IViewEngine
     {
-        public ViewEngineResult FindPartialView(ActionContext context, string partialViewName)
+        public ViewEngineResult FindView(ActionContext context, string viewName, bool isMainPage)
         {
-            if (string.Equals(partialViewName, "partial-test-view", StringComparison.Ordinal))
+            if (string.Equals(viewName, "partial-test-view", StringComparison.Ordinal) ||
+                string.Equals(viewName, "test-view", StringComparison.Ordinal))
             {
-                return ViewEngineResult.Found(partialViewName, new TestPartialView());
+                var view = isMainPage ? (IView)new TestView() : new TestPartialView();
+
+                return ViewEngineResult.Found(viewName, view);
             }
-            return ViewEngineResult.NotFound(partialViewName, new[] { partialViewName });
+
+            return ViewEngineResult.NotFound(viewName, Enumerable.Empty<string>());
         }
 
-        public ViewEngineResult FindView(ActionContext context, string viewName)
+        public ViewEngineResult GetView(string executingFilePath, string viewPath, bool isMainPage)
         {
-            if (string.Equals(viewName, "test-view"))
-            {
-                return ViewEngineResult.Found(viewName, new TestView());
-            }
-            return ViewEngineResult.NotFound(viewName, new[] { viewName });
+            return ViewEngineResult.NotFound(viewPath, Enumerable.Empty<string>());
         }
     }
 }

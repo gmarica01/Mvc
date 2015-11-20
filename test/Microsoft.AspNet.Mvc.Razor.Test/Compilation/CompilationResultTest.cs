@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System.Linq;
-using Microsoft.Dnx.Compilation;
+using Microsoft.Extensions.CompilationAbstractions;
 using Xunit;
 
 namespace Microsoft.AspNet.Mvc.Razor.Compilation
@@ -15,7 +15,7 @@ namespace Microsoft.AspNet.Mvc.Razor.Compilation
             // Arrange
             var compilationFailure = new CompilationFailure("test", Enumerable.Empty<Microsoft.Extensions.PlatformAbstractions.DiagnosticMessage>());
             var failures = new[] { compilationFailure };
-            var result = CompilationResult.Failed(failures);
+            var result = new CompilationResult(failures);
 
             // Act and Assert
             Assert.Null(result.CompiledType);

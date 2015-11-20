@@ -103,9 +103,6 @@ namespace Microsoft.AspNet.Mvc.Razor
                     StartTagHelperWritingScopeMethodName = "StartTagHelperWritingScope",
                     EndTagHelperWritingScopeMethodName = "EndTagHelperWritingScope",
 
-                    WriteTagHelperAsyncMethodName = "WriteTagHelperAsync",
-                    WriteTagHelperToAsyncMethodName = "WriteTagHelperToAsync",
-
                     // Can't use nameof because IHtmlHelper is (also) not accessible here.
                     MarkAsHtmlEncodedMethodName = HtmlHelperPropertyName + ".Raw",
                     BeginAddHtmlAttributeValuesMethodName = "BeginAddHtmlAttributeValues",
@@ -113,6 +110,9 @@ namespace Microsoft.AspNet.Mvc.Razor
                     AddHtmlAttributeValueMethodName = "AddHtmlAttributeValue",
                     HtmlEncoderPropertyName = "HtmlEncoder",
                     TagHelperContentGetContentMethodName = nameof(TagHelperContent.GetContent),
+                    TagHelperOutputIsContentModifiedPropertyName = nameof(TagHelperOutput.IsContentModified),
+                    TagHelperOutputContentPropertyName = nameof(TagHelperOutput.Content),
+                    TagHelperOutputGetChildContentAsyncMethodName = nameof(TagHelperExecutionContext.GetChildContentAsync)
                 })
             {
                 BeginContextMethodName = "BeginContext",
@@ -311,7 +311,7 @@ namespace Microsoft.AspNet.Mvc.Razor
             var inheritedChunkTrees = GetInheritedChunkTrees(context.SourceFile);
 
             ChunkInheritanceUtility.MergeInheritedChunkTrees(
-                context.ChunkTreeBuilder.ChunkTree,
+                context.ChunkTreeBuilder.Root,
                 inheritedChunkTrees,
                 DefaultModel);
 

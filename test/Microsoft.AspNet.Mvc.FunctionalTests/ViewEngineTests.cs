@@ -158,21 +158,27 @@ expander-partial";
             Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);
         }
 
-        public static TheoryData ViewLocationExpanders_PassesInIsPartialToViewLocationExpanderContextData
+        public static TheoryData ViewLocationExpanders_GetIsMainPageFromContextData
         {
             get
             {
                 return new TheoryData<string, string>
                 {
-                    { "Index", "<expander-view><shared-views>/Shared-Views/ExpanderViews/_ExpanderPartial.cshtml</shared-views></expander-view>" },
-                    { "Partial", "<shared-views>/Shared-Views/ExpanderViews/_ExpanderPartial.cshtml</shared-views>" }
+                    {
+                        "Index",
+                        "<expander-view><shared-views>/Shared-Views/ExpanderViews/_ExpanderPartial.cshtml</shared-views></expander-view>"
+                    },
+                    {
+                        "Partial",
+                        "<shared-views>/Shared-Views/ExpanderViews/_ExpanderPartial.cshtml</shared-views>"
+                    },
                 };
             }
         }
 
         [Theory]
-        [MemberData(nameof(ViewLocationExpanders_PassesInIsPartialToViewLocationExpanderContextData))]
-        public async Task ViewLocationExpanders_PassesInIsPartialToViewLocationExpanderContext(string action, string expected)
+        [MemberData(nameof(ViewLocationExpanders_GetIsMainPageFromContextData))]
+        public async Task ViewLocationExpanders_GetIsMainPageFromContext(string action, string expected)
         {
             // Arrange & Act
             var body = await Client.GetStringAsync($"http://localhost/ExpanderViews/{action}");
@@ -321,6 +327,30 @@ Page Content
 
             // Act
             var body = await Client.GetStringAsync("http://localhost/ViewEngine/ViewWithComponentThatHasLayout");
+
+            // Assert
+            Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);
+        }
+
+        [Fact]
+        public async Task RelativePathsWorkAsExpected()
+        {
+            // Arrange
+            var expected =
+@"<layout>
+<nested-layout>
+/ViewEngine/ViewWithRelativePath
+ViewWithRelativePath-content
+<partial>partial-content</partial>
+<component-title>View with relative path title</component-title>
+<component-body>Component with Relative Path
+<label><strong>Name:</strong> Fred</label>
+WriteLiteral says:<strong>Write says:98052WriteLiteral says:</strong></component-body>
+</nested-layout>
+</layout>";
+
+            // Act
+            var body = await Client.GetStringAsync("http://localhost/ViewEngine/ViewWithRelativePath");
 
             // Assert
             Assert.Equal(expected, body.Trim(), ignoreLineEndingDifferences: true);

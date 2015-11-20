@@ -16,11 +16,15 @@ namespace Microsoft.AspNet.Mvc.Razor
         /// </summary>
         /// <param name="actionContext">The <see cref="Mvc.ActionContext"/> for the current executing action.</param>
         /// <param name="viewName">The view name.</param>
-        /// <param name="isPartial">Determines if the view being discovered is a partial.</param>
+        /// <param name="controllerName">The controller name.</param>
+        /// <param name="areaName">The area name.</param>
+        /// <param name="isMainPage">Determines if the page being found is the main page for an action.</param>
         public ViewLocationExpanderContext(
             ActionContext actionContext,
             string viewName,
-            bool isPartial)
+            string controllerName,
+            string areaName,
+            bool isMainPage)
         {
             if (actionContext == null)
             {
@@ -34,7 +38,9 @@ namespace Microsoft.AspNet.Mvc.Razor
 
             ActionContext = actionContext;
             ViewName = viewName;
-            IsPartial = isPartial;
+            ControllerName = controllerName;
+            AreaName = areaName;
+            IsMainPage = isMainPage;
         }
 
         /// <summary>
@@ -48,9 +54,19 @@ namespace Microsoft.AspNet.Mvc.Razor
         public string ViewName { get; }
 
         /// <summary>
-        /// Gets a value that determines if a partial view is being discovered.
+        /// Gets the controller name.
         /// </summary>
-        public bool IsPartial { get; }
+        public string ControllerName { get; }
+
+        /// <summary>
+        /// Gets the area name.
+        /// </summary>
+        public string AreaName { get; }
+
+        /// <summary>
+        /// Determines if the page being found is the main page for an action.
+        /// </summary>
+        public bool IsMainPage { get; }
 
         /// <summary>
         /// Gets or sets the <see cref="IDictionary{TKey, TValue}"/> that is populated with values as part of

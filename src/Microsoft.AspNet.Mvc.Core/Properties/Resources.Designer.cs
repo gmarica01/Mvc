@@ -507,22 +507,6 @@ namespace Microsoft.AspNet.Mvc.Core
         }
 
         /// <summary>
-        /// Two or more routes named '{0}' have different templates.
-        /// </summary>
-        internal static string AttributeRoute_DifferentLinkGenerationEntries_SameName
-        {
-            get { return GetString("AttributeRoute_DifferentLinkGenerationEntries_SameName"); }
-        }
-
-        /// <summary>
-        /// Two or more routes named '{0}' have different templates.
-        /// </summary>
-        internal static string FormatAttributeRoute_DifferentLinkGenerationEntries_SameName(object p0)
-        {
-            return string.Format(CultureInfo.CurrentCulture, GetString("AttributeRoute_DifferentLinkGenerationEntries_SameName"), p0);
-        }
-
-        /// <summary>
         /// Action: '{0}' - Template: '{1}'
         /// </summary>
         internal static string AttributeRoute_DuplicateNames_Item
@@ -1048,6 +1032,54 @@ namespace Microsoft.AspNet.Mvc.Core
         internal static string FormatUrlNotLocal()
         {
             return GetString("UrlNotLocal");
+        }
+
+        /// <summary>
+        /// The char buffer must have a length of at least '{0}' to be used with a byte buffer of size '{1}' and encoding '{2}'. Use '{3}.{4}' to compute the correct size for the char buffer.
+        /// </summary>
+        internal static string HttpRequestStreamReader_InvalidBufferSize
+        {
+            get { return GetString("HttpRequestStreamReader_InvalidBufferSize"); }
+        }
+
+        /// <summary>
+        /// The char buffer must have a length of at least '{0}' to be used with a byte buffer of size '{1}' and encoding '{2}'. Use '{3}.{4}' to compute the correct size for the char buffer.
+        /// </summary>
+        internal static string FormatHttpRequestStreamReader_InvalidBufferSize(object p0, object p1, object p2, object p3, object p4)
+        {
+            return string.Format(CultureInfo.CurrentCulture, GetString("HttpRequestStreamReader_InvalidBufferSize"), p0, p1, p2, p3, p4);
+        }
+
+        /// <summary>
+        /// The stream must support reading.
+        /// </summary>
+        internal static string HttpRequestStreamReader_StreamNotReadable
+        {
+            get { return GetString("HttpRequestStreamReader_StreamNotReadable"); }
+        }
+
+        /// <summary>
+        /// The stream must support reading.
+        /// </summary>
+        internal static string FormatHttpRequestStreamReader_StreamNotReadable()
+        {
+            return GetString("HttpRequestStreamReader_StreamNotReadable");
+        }
+
+        /// <summary>
+        /// The stream must support writing.
+        /// </summary>
+        internal static string HttpResponseStreamWriter_StreamNotWritable
+        {
+            get { return GetString("HttpResponseStreamWriter_StreamNotWritable"); }
+        }
+
+        /// <summary>
+        /// The stream must support writing.
+        /// </summary>
+        internal static string FormatHttpResponseStreamWriter_StreamNotWritable()
+        {
+            return GetString("HttpResponseStreamWriter_StreamNotWritable");
         }
 
         private static string GetString(string name, params string[] formatterNames)

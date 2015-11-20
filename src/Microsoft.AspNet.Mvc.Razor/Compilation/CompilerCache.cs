@@ -6,6 +6,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using System.Threading.Tasks;
 using Microsoft.AspNet.FileProviders;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -18,6 +19,7 @@ namespace Microsoft.AspNet.Mvc.Razor.Compilation
     {
         private readonly IFileProvider _fileProvider;
         private readonly IMemoryCache _cache;
+        private readonly object _cacheLock = new object();
 
         private readonly ConcurrentDictionary<string, string> _normalizedPathLookup =
             new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -56,8 +58,8 @@ namespace Microsoft.AspNet.Mvc.Razor.Compilation
 
             foreach (var item in precompiledViews)
             {
-                var cacheEntry = new CompilerCacheResult(CompilationResult.Successful(item.Value));
-                _cache.Set(GetNormalizedPath(item.Key), cacheEntry);
+                var cacheEntry = new CompilerCacheResult(new CompilationResult(item.Value));
+                _cache.Set(GetNormalizedPath(item.Key), Task.FromResult(cacheEntry));
             }
         }
 
@@ -76,53 +78,77 @@ namespace Microsoft.AspNet.Mvc.Razor.Compilation
                 throw new ArgumentNullException(nameof(compile));
             }
 
-            CompilerCacheResult cacheResult;
+            Task<CompilerCacheResult> cacheEntry;
             // Attempt to lookup the cache entry using the passed in path. This will succeed if the path is already
             // normalized and a cache entry exists.
-            if (!_cache.TryGetValue(relativePath, out cacheResult))
+            if (!_cache.TryGetValue(relativePath, out cacheEntry))
             {
                 var normalizedPath = GetNormalizedPath(relativePath);
-                if (!_cache.TryGetValue(normalizedPath, out cacheResult))
+                if (!_cache.TryGetValue(normalizedPath, out cacheEntry))
                 {
-                    cacheResult = CreateCacheEntry(normalizedPath, compile);
+                    cacheEntry = CreateCacheEntry(normalizedPath, compile);
                 }
             }
 
-            return cacheResult;
+            // The Task does not represent async work and is meant to provide per-entry locking.
+            // Hence it is ok to perform .GetResult() to read the result.
+            return cacheEntry.GetAwaiter().GetResult();
         }
 
-        private CompilerCacheResult CreateCacheEntry(
+        private Task<CompilerCacheResult> CreateCacheEntry(
             string normalizedPath,
             Func<RelativeFileInfo, CompilationResult> compile)
         {
-            CompilerCacheResult cacheResult;
-            var fileInfo = _fileProvider.GetFileInfo(normalizedPath);
-            MemoryCacheEntryOptions cacheEntryOptions;
-            CompilerCacheResult cacheResultToCache;
-            if (!fileInfo.Exists)
-            {
-                cacheResultToCache = CompilerCacheResult.FileNotFound;
-                cacheResult = CompilerCacheResult.FileNotFound;
+            TaskCompletionSource<CompilerCacheResult> compilationTaskSource = null;
+            MemoryCacheEntryOptions cacheEntryOptions = null;
+            IFileInfo fileInfo = null;
+            Task<CompilerCacheResult> cacheEntry;
 
-                cacheEntryOptions = new MemoryCacheEntryOptions();
-                cacheEntryOptions.AddExpirationToken(_fileProvider.Watch(normalizedPath));
-            }
-            else
+            // Safe races cannot be allowed when compiling Razor pages. To ensure only one compilation request succeeds
+            // per file, we'll lock the creation of a cache entry. Creating the cache entry should be very quick. The
+            // actual work for compiling files happens outside the critical section.
+            lock (_cacheLock)
             {
+                if (_cache.TryGetValue(normalizedPath, out cacheEntry))
+                {
+                    return cacheEntry;
+                }
+
+                fileInfo = _fileProvider.GetFileInfo(normalizedPath);
+                if (!fileInfo.Exists)
+                {
+                    var expirationToken = _fileProvider.Watch(normalizedPath);
+                    cacheEntry = Task.FromResult(new CompilerCacheResult(new[] { expirationToken }));
+
+                    cacheEntryOptions = new MemoryCacheEntryOptions();
+                    cacheEntryOptions.AddExpirationToken(expirationToken);
+                }
+                else
+                {
+                    cacheEntryOptions = GetMemoryCacheEntryOptions(normalizedPath);
+
+                    // A file exists and needs to be compiled.
+                    compilationTaskSource = new TaskCompletionSource<CompilerCacheResult>();
+                    cacheEntry = compilationTaskSource.Task;
+                }
+
+                cacheEntry = _cache.Set<Task<CompilerCacheResult>>(normalizedPath, cacheEntry, cacheEntryOptions);
+            }
+
+            if (compilationTaskSource != null)
+            {
+                // Indicates that the file was found and needs to be compiled.
+                Debug.Assert(fileInfo != null && fileInfo.Exists);
+                Debug.Assert(cacheEntryOptions != null);
                 var relativeFileInfo = new RelativeFileInfo(fileInfo, normalizedPath);
-                var compilationResult = compile(relativeFileInfo).EnsureSuccessful();
-                cacheEntryOptions = GetMemoryCacheEntryOptions(normalizedPath);
+                var compilationResult = compile(relativeFileInfo);
+                compilationResult.EnsureSuccessful();
 
-                // By default the CompilationResult returned by IRoslynCompiler is an instance of
-                // UncachedCompilationResult. This type has the generated code as a string property and do not want
-                // to cache it. We'll instead cache the unwrapped result.
-                cacheResultToCache = new CompilerCacheResult(
-                    CompilationResult.Successful(compilationResult.CompiledType));
-                cacheResult = new CompilerCacheResult(compilationResult);
+                compilationTaskSource.SetResult(
+                    new CompilerCacheResult(compilationResult, cacheEntryOptions.ExpirationTokens));
             }
 
-            _cache.Set(normalizedPath, cacheResultToCache, cacheEntryOptions);
-            return cacheResult;
+            return cacheEntry;
         }
 
         private MemoryCacheEntryOptions GetMemoryCacheEntryOptions(string relativePath)

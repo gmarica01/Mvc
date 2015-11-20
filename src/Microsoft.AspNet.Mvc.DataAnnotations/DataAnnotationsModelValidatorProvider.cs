@@ -1,10 +1,10 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
-using System;
 using System.ComponentModel.DataAnnotations;
-using System.Linq;
+#if DOTNET5_4
 using System.Reflection;
+#endif
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.OptionsModel;
 
@@ -36,16 +36,33 @@ namespace Microsoft.AspNet.Mvc.ModelBinding.Validation
         public void GetValidators(ModelValidatorProviderContext context)
         {
             IStringLocalizer stringLocalizer = null;
-            if (_options.Value.DataAnnotationLocalizerProvider != null && _stringLocalizerFactory != null)
+            if (_stringLocalizerFactory != null && _options.Value.DataAnnotationLocalizerProvider != null)
             {
                 stringLocalizer = _options.Value.DataAnnotationLocalizerProvider(
                     context.ModelMetadata.ContainerType ?? context.ModelMetadata.ModelType,
                     _stringLocalizerFactory);
             }
 
-            foreach (var attribute in context.ValidatorMetadata.OfType<ValidationAttribute>())
+            for (var i = 0; i < context.ValidatorMetadata.Count; i++)
             {
-                context.Validators.Add(new DataAnnotationsModelValidator(attribute, stringLocalizer));
+                var attribute = context.ValidatorMetadata[i] as ValidationAttribute;
+                if (attribute == null)
+                {
+                    continue;
+                }
+
+                var validator = new DataAnnotationsModelValidator(attribute, stringLocalizer);
+
+                // Inserts validators based on whether or not they are 'required'. We want to run
+                // 'required' validators first so that we get the best possible error message.
+                if (attribute is RequiredAttribute)
+                {
+                    context.Validators.Insert(0, validator);
+                }
+                else
+                {
+                    context.Validators.Add(validator);
+                }
             }
 
             // Produce a validator if the type supports IValidatableObject

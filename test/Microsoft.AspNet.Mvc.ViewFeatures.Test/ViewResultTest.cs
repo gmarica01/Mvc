@@ -4,6 +4,7 @@
 #if MOCK_SUPPORT
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNet.Http;
 using Microsoft.AspNet.Http.Internal;
@@ -25,21 +26,101 @@ namespace Microsoft.AspNet.Mvc
     public class ViewResultTest
     {
         [Fact]
-        public async Task ExecuteResultAsync_Throws_IfViewCouldNotBeFound()
+        public async Task ExecuteResultAsync_Throws_IfViewCouldNotBeFound_MessageUsesGetViewLocations()
         {
             // Arrange
             var expected = string.Join(
                 Environment.NewLine,
                 "The view 'MyView' was not found. The following locations were searched:",
                 "Location1",
-                "Location2.");
+                "Location2");
 
             var actionContext = GetActionContext();
 
-            var viewEngine = new Mock<IViewEngine>();
+            var viewEngine = new Mock<IViewEngine>(MockBehavior.Strict);
             viewEngine
-                .Setup(v => v.FindView(It.IsAny<ActionContext>(), It.IsAny<string>()))
+                .Setup(e => e.GetView(/*executingFilePath*/ null, "MyView", /*isMainPage*/ true))
                 .Returns(ViewEngineResult.NotFound("MyView", new[] { "Location1", "Location2" }))
+                .Verifiable();
+            viewEngine
+                .Setup(v => v.FindView(It.IsAny<ActionContext>(), It.IsAny<string>(), /*isMainPage*/ true))
+                .Returns(ViewEngineResult.NotFound("MyView", Enumerable.Empty<string>()))
+                .Verifiable();
+
+            var viewResult = new ViewResult
+            {
+                ViewEngine = viewEngine.Object,
+                ViewName = "MyView",
+                ViewData = new ViewDataDictionary(new EmptyModelMetadataProvider()),
+                TempData = Mock.Of<ITempDataDictionary>(),
+            };
+
+            // Act and Assert
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => viewResult.ExecuteResultAsync(actionContext));
+            Assert.Equal(expected, ex.Message);
+            viewEngine.Verify();
+        }
+
+        [Fact]
+        public async Task ExecuteResultAsync_Throws_IfViewCouldNotBeFound_MessageUsesFindViewLocations()
+        {
+            // Arrange
+            var expected = string.Join(
+                Environment.NewLine,
+                "The view 'MyView' was not found. The following locations were searched:",
+                "Location1",
+                "Location2");
+
+            var actionContext = GetActionContext();
+
+            var viewEngine = new Mock<IViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(e => e.GetView(/*executingFilePath*/ null, "MyView", /*isMainPage*/ true))
+                .Returns(ViewEngineResult.NotFound("MyView", Enumerable.Empty<string>()))
+                .Verifiable();
+            viewEngine
+                .Setup(v => v.FindView(It.IsAny<ActionContext>(), It.IsAny<string>(), /*isMainPage*/ true))
+                .Returns(ViewEngineResult.NotFound("MyView", new[] { "Location1", "Location2" }))
+                .Verifiable();
+
+            var viewResult = new ViewResult
+            {
+                ViewEngine = viewEngine.Object,
+                ViewName = "MyView",
+                ViewData = new ViewDataDictionary(new EmptyModelMetadataProvider()),
+                TempData = Mock.Of<ITempDataDictionary>(),
+            };
+
+            // Act and Assert
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => viewResult.ExecuteResultAsync(actionContext));
+            Assert.Equal(expected, ex.Message);
+            viewEngine.Verify();
+        }
+
+        [Fact]
+        public async Task ExecuteResultAsync_Throws_IfViewCouldNotBeFound_MessageUsesAllLocations()
+        {
+            // Arrange
+            var expected = string.Join(
+                Environment.NewLine,
+                "The view 'MyView' was not found. The following locations were searched:",
+                "Location1",
+                "Location2",
+                "Location3",
+                "Location4");
+
+            var actionContext = GetActionContext();
+
+            var viewEngine = new Mock<IViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(e => e.GetView(/*executingFilePath*/ null, "MyView", /*isMainPage*/ true))
+                .Returns(ViewEngineResult.NotFound("MyView", new[] { "Location1", "Location2" }))
+                .Verifiable();
+            viewEngine
+                .Setup(v => v.FindView(It.IsAny<ActionContext>(), It.IsAny<string>(), /*isMainPage*/ true))
+                .Returns(ViewEngineResult.NotFound("MyView", new[] { "Location3", "Location4" }))
                 .Verifiable();
 
             var viewResult = new ViewResult
@@ -81,7 +162,11 @@ namespace Microsoft.AspNet.Mvc
 
             var viewEngine = new Mock<IViewEngine>(MockBehavior.Strict);
             viewEngine
-                .Setup(e => e.FindView(context, "myview"))
+                .Setup(e => e.GetView(/*executingFilePath*/ null, "myview", /*isMainPage*/ true))
+                .Returns(ViewEngineResult.NotFound("myview", Enumerable.Empty<string>()))
+                .Verifiable();
+            viewEngine
+                .Setup(e => e.FindView(context, "myview", /*isMainPage*/ true))
                 .Returns(ViewEngineResult.Found("myview", view.Object))
                 .Verifiable();
 
@@ -118,7 +203,7 @@ namespace Microsoft.AspNet.Mvc
                NullLoggerFactory.Instance);
 
             var services = new ServiceCollection();
-            services.AddInstance(viewExecutor);
+            services.AddSingleton(viewExecutor);
 
             var httpContext = new DefaultHttpContext();
             httpContext.RequestServices = services.BuildServiceProvider();

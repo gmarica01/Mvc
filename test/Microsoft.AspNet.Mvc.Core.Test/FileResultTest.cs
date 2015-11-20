@@ -1,6 +1,7 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.IO;
 using System.Net.Mime;
 using System.Threading.Tasks;
@@ -120,6 +121,39 @@ namespace Microsoft.AspNet.Mvc
             Assert.Equal("attachment; filename=filename.ext; filename*=UTF-8''filename.ext", httpContext.Response.Headers["Content-Disposition"]);
         }
 
+        [Fact]
+        public async Task ExecuteResultAsync_ThrowsException_IfCannotResolveLoggerFactory()
+        {
+            // Arrange
+            var httpContext = new DefaultHttpContext();
+            httpContext.RequestServices = new ServiceCollection().BuildServiceProvider();
+            var actionContext = CreateActionContext(httpContext);
+            var result = new EmptyFileResult("application/my-type");
+
+            // Act & Assert
+            await Assert.ThrowsAsync<InvalidOperationException>(() => result.ExecuteResultAsync(actionContext));
+        }
+
+        [Fact]
+        public async Task ExecuteResultAsync_LogsInformation_IfCanResolveLoggerFactory()
+        {
+            // Arrange
+            var httpContext = new DefaultHttpContext();
+            var services = new ServiceCollection();
+            var loggerSink = new TestSink();
+            services.AddSingleton<ILoggerFactory>(new TestLoggerFactory(loggerSink, true));
+            httpContext.RequestServices = services.BuildServiceProvider();
+
+            var actionContext = CreateActionContext(httpContext);
+            var result = new EmptyFileResult("application/my-type");
+
+            // Act
+            await result.ExecuteResultAsync(actionContext);
+
+            // Assert
+            Assert.Equal(1, loggerSink.Writes.Count);
+        }
+
         public static TheoryData<string, string> ContentDispositionData
         {
             get
@@ -217,7 +251,7 @@ namespace Microsoft.AspNet.Mvc
         private static IServiceCollection CreateServices()
         {
             var services = new ServiceCollection();
-            services.AddInstance<ILoggerFactory>(NullLoggerFactory.Instance);
+            services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
             return services;
         }
 

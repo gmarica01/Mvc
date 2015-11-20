@@ -72,9 +72,6 @@ namespace Microsoft.AspNet.Mvc.Razor
         /// <inheritdoc />
         public string Layout { get; set; }
 
-        /// <inheritdoc />
-        public bool IsPartial { get; set; }
-
         /// <summary>
         /// Gets the <see cref="HtmlEncoder"/> to be used for encoding HTML.
         /// </summary>
@@ -83,6 +80,12 @@ namespace Microsoft.AspNet.Mvc.Razor
 
         /// <inheritdoc />
         public IPageExecutionContext PageExecutionContext { get; set; }
+
+        /// <summary>
+        /// Gets or sets a <see cref="DiagnosticSource.DiagnosticSource"/> instance used to instrument the page execution.
+        /// </summary>
+        [RazorInject]
+        public DiagnosticSource DiagnosticSource { get; set; }
 
         /// <summary>
         /// Gets the <see cref="TextWriter"/> that the page is writing output to.
@@ -308,106 +311,6 @@ namespace Microsoft.AspNet.Mvc.Razor
         }
 
         /// <summary>
-        /// Writes the content of a specified <paramref name="tagHelperExecutionContext"/>.
-        /// </summary>
-        /// <param name="tagHelperExecutionContext">The execution context containing the content.</param>
-        /// <returns>
-        /// A <see cref="Task"/> that on completion writes the <paramref name="tagHelperExecutionContext"/> content.
-        /// </returns>
-        public Task WriteTagHelperAsync(TagHelperExecutionContext tagHelperExecutionContext)
-        {
-            if (tagHelperExecutionContext == null)
-            {
-                throw new ArgumentNullException(nameof(tagHelperExecutionContext));
-            }
-
-            return WriteTagHelperToAsync(Output, tagHelperExecutionContext);
-        }
-
-        /// <summary>
-        /// Writes the content of a specified <paramref name="tagHelperExecutionContext"/> to the specified
-        /// <paramref name="writer"/>.
-        /// </summary>
-        /// <param name="writer">The <see cref="TextWriter"/> instance to write to.</param>
-        /// <param name="tagHelperExecutionContext">The execution context containing the content.</param>
-        /// <returns>
-        /// A <see cref="Task"/> that on completion writes the <paramref name="tagHelperExecutionContext"/> content
-        /// to the <paramref name="writer"/>.
-        /// </returns>
-        public async Task WriteTagHelperToAsync(
-            TextWriter writer,
-            TagHelperExecutionContext tagHelperExecutionContext)
-        {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
-
-            if (tagHelperExecutionContext == null)
-            {
-                throw new ArgumentNullException(nameof(tagHelperExecutionContext));
-            }
-
-            var tagHelperOutput = tagHelperExecutionContext.Output;
-            var isTagNameNullOrWhitespace = string.IsNullOrWhiteSpace(tagHelperOutput.TagName);
-
-            WriteTo(writer, tagHelperOutput.PreElement);
-
-            if (!isTagNameNullOrWhitespace)
-            {
-                writer.Write('<');
-                writer.Write(tagHelperOutput.TagName);
-
-                foreach (var attribute in tagHelperOutput.Attributes)
-                {
-                    writer.Write(' ');
-                    writer.Write(attribute.Name);
-
-                    if (!attribute.Minimized)
-                    {
-                        writer.Write("=\"");
-                        WriteTo(writer, HtmlEncoder, attribute.Value, escapeQuotes: true);
-                        writer.Write('"');
-                    }
-                }
-
-                if (tagHelperOutput.TagMode == TagMode.SelfClosing)
-                {
-                    writer.Write(" /");
-                }
-
-                writer.Write('>');
-            }
-
-            if (isTagNameNullOrWhitespace || tagHelperOutput.TagMode == TagMode.StartTagAndEndTag)
-            {
-                WriteTo(writer, tagHelperOutput.PreContent);
-                if (tagHelperOutput.IsContentModified)
-                {
-                    WriteTo(writer, tagHelperOutput.Content);
-                }
-                else if (tagHelperExecutionContext.ChildContentRetrieved)
-                {
-                    var childContent = await tagHelperExecutionContext.GetChildContentAsync(useCachedResult: true);
-                    WriteTo(writer, childContent);
-                }
-                else
-                {
-                    await tagHelperExecutionContext.ExecuteChildContentAsync();
-                }
-
-                WriteTo(writer, tagHelperOutput.PostContent);
-            }
-
-            if (!isTagNameNullOrWhitespace && tagHelperOutput.TagMode == TagMode.StartTagAndEndTag)
-            {
-                writer.Write(string.Format(CultureInfo.InvariantCulture, "</{0}>", tagHelperOutput.TagName));
-            }
-
-            WriteTo(writer, tagHelperOutput.PostElement);
-        }
-
-        /// <summary>
         /// Writes the specified <paramref name="value"/> with HTML encoding to <see cref="Output"/>.
         /// </summary>
         /// <param name="value">The <see cref="object"/> to write.</param>
@@ -434,7 +337,7 @@ namespace Microsoft.AspNet.Mvc.Razor
                 throw new ArgumentNullException(nameof(writer));
             }
 
-            WriteTo(writer, HtmlEncoder, value, escapeQuotes: false);
+            WriteTo(writer, HtmlEncoder, value);
         }
 
         /// <summary>
@@ -443,21 +346,13 @@ namespace Microsoft.AspNet.Mvc.Razor
         /// <param name="writer">The <see cref="TextWriter"/> instance to write to.</param>
         /// <param name="encoder">The <see cref="HtmlEncoder"/> to use when encoding <paramref name="value"/>.</param>
         /// <param name="value">The <see cref="object"/> to write.</param>
-        /// <param name="escapeQuotes">
-        /// If <c>true</c> escapes double quotes in a <paramref name="value"/> of type <see cref="HtmlString"/>.
-        /// Otherwise writes <see cref="HtmlString"/> values as-is.
-        /// </param>
         /// <remarks>
         /// <paramref name="value"/>s of type <see cref="IHtmlContent"/> are written using
         /// <see cref="IHtmlContent.WriteTo(TextWriter, HtmlEncoder)"/>.
         /// For all other types, the encoded result of <see cref="object.ToString"/> is written to the
         /// <paramref name="writer"/>.
         /// </remarks>
-        public static void WriteTo(
-            TextWriter writer,
-            HtmlEncoder encoder,
-            object value,
-            bool escapeQuotes)
+        public static void WriteTo(TextWriter writer, HtmlEncoder encoder, object value)
         {
             if (writer == null)
             {
@@ -477,28 +372,6 @@ namespace Microsoft.AspNet.Mvc.Razor
             var htmlContent = value as IHtmlContent;
             if (htmlContent != null)
             {
-                if (escapeQuotes)
-                {
-                    // In this case the text likely came directly from the Razor source. Since the original string is
-                    // an attribute value that may have been quoted with single quotes, must handle any double quotes
-                    // in the value. Writing the value out surrounded by double quotes.
-                    //
-                    // This is really not optimal from a perf point of view, but it's the best we can do for right now.
-                    using (var stringWriter = new StringWriter())
-                    {
-                        htmlContent.WriteTo(stringWriter, encoder);
-
-                        var stringValue = stringWriter.ToString();
-                        if (stringValue.Contains("\""))
-                        {
-                            stringValue = stringValue.Replace("\"", "&quot;");
-                        }
-
-                        writer.Write(stringValue);
-                        return;
-                    }
-                }
-
                 var htmlTextWriter = writer as HtmlTextWriter;
                 if (htmlTextWriter == null)
                 {
@@ -1063,12 +936,39 @@ namespace Microsoft.AspNet.Mvc.Razor
 
         public void BeginContext(int position, int length, bool isLiteral)
         {
+            const string BeginContextEvent = "Microsoft.AspNet.Mvc.Razor.BeginInstrumentationContext";
+
             PageExecutionContext?.BeginContext(position, length, isLiteral);
+            if (DiagnosticSource?.IsEnabled(BeginContextEvent) == true)
+            {
+                DiagnosticSource.Write(
+                    BeginContextEvent,
+                    new
+                    {
+                        httpContext = Context,
+                        path = Path,
+                        position = position,
+                        length = length,
+                        isLiteral = isLiteral,
+                    });
+            }
         }
 
         public void EndContext()
         {
+            const string EndContextEvent = "Microsoft.AspNet.Mvc.Razor.EndInstrumentationContext";
+
             PageExecutionContext?.EndContext();
+            if (DiagnosticSource?.IsEnabled(EndContextEvent) == true)
+            {
+                DiagnosticSource.Write(
+                    EndContextEvent,
+                    new
+                    {
+                        httpContext = Context,
+                        path = Path,
+                    });
+            }
         }
 
         /// <summary>

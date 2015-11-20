@@ -6,14 +6,15 @@
     "url": "git://github.com/aspnet/mvc"
   },
   "compilationOptions": {
-    "warningsAsErrors": true
+    "warningsAsErrors": true,
+    "keyFile": "../../tools/Key.snk"
   },
   "frameworks": {
     "net451": {},
     "dotnet5.4": {
       "dependencies": {
-        "System.IO": "4.0.11-beta-*",
-        "System.Resources.ResourceManager": "4.0.1-beta-*"
+        "System.IO": "4.0.11-*",
+        "System.Resources.ResourceManager": "4.0.1-*"
       }
     }
   }

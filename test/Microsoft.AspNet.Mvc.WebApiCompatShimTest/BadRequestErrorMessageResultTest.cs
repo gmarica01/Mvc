@@ -14,7 +14,7 @@ using Microsoft.AspNet.Routing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.OptionsModel;
-using Microsoft.Framework.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using Xunit;
 
@@ -74,7 +74,7 @@ namespace System.Web.Http
             options.Value.OutputFormatters.Add(new JsonOutputFormatter());
 
             var services = new ServiceCollection();
-            services.AddInstance(new ObjectResultExecutor(
+            services.AddSingleton(new ObjectResultExecutor(
                 options,
                 new ActionBindingContextAccessor(),
                 new TestHttpResponseStreamWriterFactory(),

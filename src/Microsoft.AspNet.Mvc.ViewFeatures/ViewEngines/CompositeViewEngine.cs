@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.AspNet.Mvc.ViewFeatures;
 using Microsoft.Extensions.OptionsModel;
 
 namespace Microsoft.AspNet.Mvc.ViewEngines
@@ -24,61 +25,88 @@ namespace Microsoft.AspNet.Mvc.ViewEngines
         public IReadOnlyList<IViewEngine> ViewEngines { get; }
 
         /// <inheritdoc />
-        public ViewEngineResult FindPartialView(
-            ActionContext context,
-            string partialViewName)
+        public ViewEngineResult FindView(ActionContext context, string viewName, bool isMainPage)
         {
             if (context == null)
             {
                 throw new ArgumentNullException(nameof(context));
             }
 
-            if (partialViewName == null)
+            if (string.IsNullOrEmpty(viewName))
             {
-                throw new ArgumentNullException(nameof(partialViewName));
+                throw new ArgumentException(Resources.ArgumentCannotBeNullOrEmpty, nameof(viewName));
             }
 
-            return FindView(context, partialViewName, partial: true);
-        }
-
-        /// <inheritdoc />
-        public ViewEngineResult FindView(
-            ActionContext context,
-            string viewName)
-        {
-            if (context == null)
+            // Do not allocate in the common cases: ViewEngines contains one entry or initial attempt is successful.
+            IEnumerable<string> searchedLocations = null;
+            List<string> searchedList = null;
+            for (var i = 0; i < ViewEngines.Count; i++)
             {
-                throw new ArgumentNullException(nameof(context));
-            }
-
-            if (viewName == null)
-            {
-                throw new ArgumentNullException(nameof(viewName));
-            }
-
-            return FindView(context, viewName, partial: false);
-        }
-
-        private ViewEngineResult FindView(
-            ActionContext context,
-            string viewName,
-            bool partial)
-        {
-            var searchedLocations = Enumerable.Empty<string>();
-            foreach (var engine in ViewEngines)
-            {
-                var result = partial ? engine.FindPartialView(context, viewName) :
-                                       engine.FindView(context, viewName);
-
+                var result = ViewEngines[i].FindView(context, viewName, isMainPage);
                 if (result.Success)
                 {
                     return result;
                 }
 
-                searchedLocations = searchedLocations.Concat(result.SearchedLocations);
+                if (searchedLocations == null)
+                {
+                    // First failure.
+                    searchedLocations = result.SearchedLocations;
+                }
+                else
+                {
+                    if (searchedList == null)
+                    {
+                        // Second failure.
+                        searchedList = new List<string>(searchedLocations);
+                        searchedLocations = searchedList;
+                    }
+
+                    searchedList.AddRange(result.SearchedLocations);
+                }
             }
 
-            return ViewEngineResult.NotFound(viewName, searchedLocations);
+            return ViewEngineResult.NotFound(viewName, searchedLocations ?? Enumerable.Empty<string>());
+        }
+
+        /// <inheritdoc />
+        public ViewEngineResult GetView(string executingFilePath, string viewPath, bool isMainPage)
+        {
+            if (string.IsNullOrEmpty(viewPath))
+            {
+                throw new ArgumentException(Resources.ArgumentCannotBeNullOrEmpty, nameof(viewPath));
+            }
+
+            // Do not allocate in the common cases: ViewEngines contains one entry or initial attempt is successful.
+            IEnumerable<string> searchedLocations = null;
+            List<string> searchedList = null;
+            for (var i = 0; i < ViewEngines.Count; i++)
+            {
+                var result = ViewEngines[i].GetView(executingFilePath, viewPath, isMainPage);
+                if (result.Success)
+                {
+                    return result;
+                }
+
+                if (searchedLocations == null)
+                {
+                    // First failure.
+                    searchedLocations = result.SearchedLocations;
+                }
+                else
+                {
+                    if (searchedList == null)
+                    {
+                        // Second failure.
+                        searchedList = new List<string>(searchedLocations);
+                        searchedLocations = searchedList;
+                    }
+
+                    searchedList.AddRange(result.SearchedLocations);
+                }
+            }
+
+            return ViewEngineResult.NotFound(viewPath, searchedLocations ?? Enumerable.Empty<string>());
         }
     }
 }

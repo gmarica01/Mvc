@@ -14,6 +14,7 @@ using Microsoft.AspNet.Mvc.Rendering;
 using Microsoft.AspNet.Mvc.ViewFeatures;
 using Microsoft.AspNet.PageExecutionInstrumentation;
 using Microsoft.AspNet.Routing;
+using Microsoft.Extensions.Primitives;
 using Microsoft.Extensions.WebEncoders.Testing;
 using Moq;
 using Xunit;
@@ -39,12 +40,12 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.HtmlEncoder = new HtmlTestEncoder();
                 v.Write("Hello world");
             });
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: true);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
             var expected = viewContext.Writer;
 
@@ -68,22 +69,23 @@ namespace Microsoft.AspNet.Mvc.Razor
                 Assert.Same(viewData, v.ViewContext.ViewData);
             });
             var activator = new Mock<IRazorPageActivator>();
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     activator.Object,
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: true);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                activator.Object,
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
 
             var viewContext = CreateViewContext(view);
             var expectedWriter = viewContext.Writer;
-            activator.Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
-                     .Callback((IRazorPage p, ViewContext c) =>
-                     {
-                         Assert.Same(c, viewContext);
-                         c.ViewData = viewData;
-                     })
-                     .Verifiable();
+            activator
+                .Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
+                .Callback((IRazorPage p, ViewContext c) =>
+                {
+                    Assert.Same(c, viewContext);
+                    c.ViewData = viewData;
+                })
+                .Verifiable();
 
             // Act
             await view.RenderAsync(viewContext);
@@ -130,14 +132,18 @@ namespace Microsoft.AspNet.Mvc.Razor
 
             var activator = Mock.Of<IRazorPageActivator>();
             var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(v => v.FindPage(It.IsAny<ActionContext>(), LayoutPath))
-                      .Returns(new RazorPageResult(LayoutPath, layout));
-            var view = new RazorView(viewEngine.Object,
-                                     activator,
-                                     CreateViewStartProvider(viewStart),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            viewEngine
+                .Setup(p => p.GetAbsolutePath("_ViewStart", LayoutPath))
+                .Returns(LayoutPath);
+            viewEngine
+                .Setup(v => v.GetPage(pagePath, LayoutPath))
+                .Returns(new RazorPageResult(LayoutPath, layout));
+            var view = new RazorView(
+                viewEngine.Object,
+                activator,
+                new[] { viewStart },
+                page,
+                new HtmlTestEncoder());
 
             var viewContext = CreateViewContext(view);
             var expectedWriter = viewContext.Writer;
@@ -155,14 +161,15 @@ namespace Microsoft.AspNet.Mvc.Razor
             // Arrange
             var page = new TestableRazorPage(v => { });
             var activator = new Mock<IRazorPageActivator>();
-            activator.Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     activator.Object,
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: true);
+            activator
+                .Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
+                .Verifiable();
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                activator.Object,
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -177,9 +184,10 @@ namespace Microsoft.AspNet.Mvc.Razor
         {
             // Arrange
             var htmlEncoder = new HtmlTestEncoder();
-            var expected = string.Join(Environment.NewLine,
-                                       "HtmlEncode[[layout-content",
-                                       "]]HtmlEncode[[page-content]]");
+            var expected = string.Join(
+                Environment.NewLine,
+                "HtmlEncode[[layout-content",
+                "]]HtmlEncode[[page-content]]");
             var page = new TestableRazorPage(v =>
             {
                 v.HtmlEncoder = htmlEncoder;
@@ -193,29 +201,28 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.Write("layout-content" + Environment.NewLine);
                 v.RenderBodyPublic();
             });
-            var pageFactory = new Mock<IRazorPageFactory>();
-            pageFactory.Setup(p => p.CreateInstance(LayoutPath))
-                       .Returns(layout);
+            var pageFactory = new Mock<IRazorPageFactoryProvider>();
+            pageFactory
+                .Setup(p => p.CreateFactory(LayoutPath))
+                .Returns(new RazorPageFactoryResult(() => layout, new IChangeToken[0]));
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(v => v.FindPage(It.IsAny<ActionContext>(), LayoutPath))
-                      .Returns(new RazorPageResult(LayoutPath, layout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, LayoutPath))
+                .Returns(new RazorPageResult(LayoutPath, layout));
 
-            var viewStartProvider = CreateViewStartProvider();
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     viewStartProvider,
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: true);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
             await view.RenderAsync(viewContext);
 
             // Assert
-            Mock.Get(viewStartProvider)
-                .Verify(v => v.GetViewStartPages(It.IsAny<string>()), Times.Never());
             Assert.Equal(expected, viewContext.Writer.ToString());
         }
 
@@ -228,12 +235,12 @@ namespace Microsoft.AspNet.Mvc.Razor
             {
                 actual = v.Output;
             });
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
             var original = viewContext.Writer;
 
@@ -253,12 +260,12 @@ namespace Microsoft.AspNet.Mvc.Razor
             {
                 v.WriteLiteral("Hello world");
             });
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
             var original = viewContext.Writer;
 
@@ -278,14 +285,15 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.WriteLiteral("Hello world");
             });
             var activator = new Mock<IRazorPageActivator>();
-            activator.Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     activator.Object,
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            activator
+                .Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
+                .Verifiable();
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                activator.Object,
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -317,18 +325,30 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.Layout = null;
             });
             var activator = new Mock<IRazorPageActivator>();
-            activator.Setup(a => a.Activate(viewStart1, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            activator.Setup(a => a.Activate(viewStart2, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            activator.Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     activator.Object,
-                                     CreateViewStartProvider(viewStart1, viewStart2),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            activator
+                .Setup(a => a.Activate(viewStart1, It.IsAny<ViewContext>()))
+                .Verifiable();
+            activator
+                .Setup(a => a.Activate(viewStart2, It.IsAny<ViewContext>()))
+                .Verifiable();
+            activator
+                .Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
+                .Verifiable();
+
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath(/*executingFilePath*/ null, "/fake-layout-path"))
+                .Returns("/fake-layout-path");
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath(/*executingFilePath*/ null, layoutPath))
+                .Returns(layoutPath);
+
+            var view = new RazorView(
+                viewEngine.Object,
+                activator.Object,
+                new[] { viewStart1, viewStart2 },
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -339,14 +359,14 @@ namespace Microsoft.AspNet.Mvc.Razor
         }
 
         [Fact]
-        public async Task RenderAsync_ThrowsIfLayoutPageCannotBeFound()
+        public async Task RenderAsync_ThrowsIfLayoutPageCannotBeFound_MessageUsesGetPageLocations()
         {
             // Arrange
-            var expected = string.Join(Environment.NewLine,
-                                       "The layout view 'Does-Not-Exist-Layout' could not be located. " +
-                                       "The following locations were searched:",
-                                       "path1",
-                                       "path2");
+            var expected = string.Join(
+                Environment.NewLine,
+                "The layout view 'Does-Not-Exist-Layout' could not be located. The following locations were searched:",
+                "path1",
+                "path2");
 
             var layoutPath = "Does-Not-Exist-Layout";
             var page = new TestableRazorPage(v =>
@@ -354,18 +374,109 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.Layout = layoutPath;
             });
 
-            var viewEngine = new Mock<IRazorViewEngine>();
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
             var activator = new Mock<IRazorPageActivator>();
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     Mock.Of<IViewStartProvider>(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
-            viewEngine.Setup(v => v.FindPage(viewContext, layoutPath))
-                      .Returns(new RazorPageResult(layoutPath, new[] { "path1", "path2" }))
-                      .Verifiable();
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, layoutPath))
+                .Returns(new RazorPageResult(layoutPath, new[] { "path1", "path2" }))
+                .Verifiable();
+            viewEngine
+                .Setup(v => v.FindPage(viewContext, layoutPath))
+                .Returns(new RazorPageResult(layoutPath, Enumerable.Empty<string>()))
+                .Verifiable();
+
+            // Act
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => view.RenderAsync(viewContext));
+
+            // Assert
+            Assert.Equal(expected, ex.Message);
+            viewEngine.Verify();
+        }
+
+        [Fact]
+        public async Task RenderAsync_ThrowsIfLayoutPageCannotBeFound_MessageUsesFindPageLocations()
+        {
+            // Arrange
+            var expected = string.Join(
+                Environment.NewLine,
+                "The layout view 'Does-Not-Exist-Layout' could not be located. The following locations were searched:",
+                "path1",
+                "path2");
+
+            var layoutPath = "Does-Not-Exist-Layout";
+            var page = new TestableRazorPage(v =>
+            {
+                v.Layout = layoutPath;
+            });
+
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            var activator = new Mock<IRazorPageActivator>();
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
+            var viewContext = CreateViewContext(view);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, layoutPath))
+                .Returns(new RazorPageResult(layoutPath, Enumerable.Empty<string>()))
+                .Verifiable();
+            viewEngine
+                .Setup(v => v.FindPage(viewContext, layoutPath))
+                .Returns(new RazorPageResult(layoutPath, new[] { "path1", "path2" }))
+                .Verifiable();
+
+            // Act
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => view.RenderAsync(viewContext));
+
+            // Assert
+            Assert.Equal(expected, ex.Message);
+            viewEngine.Verify();
+        }
+
+        [Fact]
+        public async Task RenderAsync_ThrowsIfLayoutPageCannotBeFound_MessageUsesAllLocations()
+        {
+            // Arrange
+            var expected = string.Join(
+                Environment.NewLine,
+                "The layout view 'Does-Not-Exist-Layout' could not be located. The following locations were searched:",
+                "path1",
+                "path2",
+                "path3",
+                "path4");
+
+            var layoutPath = "Does-Not-Exist-Layout";
+            var page = new TestableRazorPage(v =>
+            {
+                v.Layout = layoutPath;
+            });
+
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            var activator = new Mock<IRazorPageActivator>();
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
+            var viewContext = CreateViewContext(view);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, layoutPath))
+                .Returns(new RazorPageResult(layoutPath, new[] { "path1", "path2" }))
+                .Verifiable();
+            viewEngine
+                .Setup(v => v.FindPage(viewContext, layoutPath))
+                .Returns(new RazorPageResult(layoutPath, new[] { "path3", "path4" }))
+                .Verifiable();
 
             // Act
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => view.RenderAsync(viewContext));
@@ -414,22 +525,25 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.Write(v.RenderSection("foot"));
             });
             var activator = new Mock<IRazorPageActivator>();
-            activator.Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            activator.Setup(a => a.Activate(layout, It.IsAny<ViewContext>()))
-                     .Verifiable();
-            var viewEngine = new Mock<IRazorViewEngine>();
+            activator
+                .Setup(a => a.Activate(page, It.IsAny<ViewContext>()))
+                .Verifiable();
+            activator
+                .Setup(a => a.Activate(layout, It.IsAny<ViewContext>()))
+                .Verifiable();
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, LayoutPath))
+                .Returns(new RazorPageResult(LayoutPath, layout))
+                .Verifiable();
 
-            var view = new RazorView(viewEngine.Object,
-                                     activator.Object,
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                activator.Object,
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
-            viewEngine.Setup(p => p.FindPage(viewContext, LayoutPath))
-                       .Returns(new RazorPageResult(LayoutPath, layout))
-                       .Verifiable();
 
             // Act
             await view.RenderAsync(viewContext);
@@ -458,16 +572,17 @@ namespace Microsoft.AspNet.Mvc.Razor
             {
                 Path = LayoutPath
             };
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), LayoutPath))
-                       .Returns(new RazorPageResult(LayoutPath, layout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, LayoutPath))
+                .Returns(new RazorPageResult(LayoutPath, layout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -519,18 +634,20 @@ namespace Microsoft.AspNet.Mvc.Razor
                 Path = "/Shared/Layout2.cshtml"
             };
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout1.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout2.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, "~/Shared/Layout1.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
+            viewEngine
+                .Setup(v => v.GetPage("/Shared/Layout1.cshtml", "~/Shared/Layout2.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -579,18 +696,26 @@ namespace Microsoft.AspNet.Mvc.Razor
             });
             baseLayout.Path = "Layout";
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "NestedLayout"))
-                       .Returns(new RazorPageResult("NestedLayout", nestedLayout));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "Layout"))
-                       .Returns(new RazorPageResult("Layout", baseLayout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, "NestedLayout"))
+                .Returns(new RazorPageResult("NestedLayout", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "NestedLayout"))
+                .Returns(new RazorPageResult("NestedLayout", nestedLayout));
+            viewEngine
+                .Setup(v => v.GetPage("NestedLayout", "Layout"))
+                .Returns(new RazorPageResult("Layout", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "Layout"))
+                .Returns(new RazorPageResult("Layout", baseLayout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -639,18 +764,20 @@ namespace Microsoft.AspNet.Mvc.Razor
                 Path = "/Shared/Layout2.cshtml"
             };
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout1.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout2.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(v => v.GetPage(/*executingFilePath*/ null, "~/Shared/Layout1.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
+            viewEngine
+                .Setup(v => v.GetPage("/Shared/Layout1.cshtml", "~/Shared/Layout2.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -704,18 +831,20 @@ namespace Microsoft.AspNet.Mvc.Razor
                 Path = "/Shared/Layout2.cshtml"
             };
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout1.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout2.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage("Page", "~/Shared/Layout1.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
+            viewEngine
+                .Setup(p => p.GetPage("/Shared/Layout1.cshtml", "~/Shared/Layout2.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -738,16 +867,17 @@ namespace Microsoft.AspNet.Mvc.Razor
             {
                 Path = LayoutPath
             };
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), LayoutPath))
-                       .Returns(new RazorPageResult(LayoutPath, layout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(/*executingFilePath*/ null, LayoutPath))
+                .Returns(new RazorPageResult(LayoutPath, layout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -800,18 +930,93 @@ namespace Microsoft.AspNet.Mvc.Razor
             });
             layout2.Path = "~/Shared/Layout2.cshtml";
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout1.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", layout1));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout2.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", layout2));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(/*executingFilePath*/ null, "~/Shared/Layout1.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", layout1));
+            viewEngine
+                .Setup(p => p.GetPage("~/Shared/Layout1.cshtml", "~/Shared/Layout2.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", layout2));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
+            var viewContext = CreateViewContext(view);
+
+            // Act
+            await view.RenderAsync(viewContext);
+
+            // Assert
+            Assert.Equal(expected, viewContext.Writer.ToString());
+        }
+
+        [Fact]
+        public async Task RenderAsync_ExecutesNestedLayoutPages_WithRelativePaths()
+        {
+            // Arrange
+            var htmlEncoder = new HtmlTestEncoder();
+            var expected =
+                "HtmlEncode[[layout-2" + Environment.NewLine +
+                "]]bar-content" + Environment.NewLine +
+                "HtmlEncode[[layout-1" + Environment.NewLine +
+                "]]foo-content" + Environment.NewLine +
+                "body-content";
+
+            var page = new TestableRazorPage(v =>
+            {
+                v.HtmlEncoder = htmlEncoder;
+                v.DefineSection("foo", async writer =>
+                {
+                    await writer.WriteLineAsync("foo-content");
+                });
+                v.Layout = "Layout1.cshtml";
+                v.WriteLiteral("body-content");
+            })
+            {
+                Path = "~/Shared/Page.cshtml",
+            };
+
+            var layout1 = new TestableRazorPage(v =>
+            {
+                v.HtmlEncoder = htmlEncoder;
+                v.Write("layout-1" + Environment.NewLine);
+                v.Write(v.RenderSection("foo"));
+                v.DefineSection("bar", writer => writer.WriteLineAsync("bar-content"));
+                v.RenderBodyPublic();
+                v.Layout = "Layout2.cshtml";
+            })
+            {
+                Path = "~/Shared/Layout1.cshtml",
+            };
+
+            var layout2 = new TestableRazorPage(v =>
+            {
+                v.HtmlEncoder = htmlEncoder;
+                v.Write("layout-2" + Environment.NewLine);
+                v.Write(v.RenderSection("bar"));
+                v.RenderBodyPublic();
+            })
+            {
+                Path = "~/Shared/Layout2.cshtml",
+            };
+
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage("~/Shared/Page.cshtml", "Layout1.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", layout1));
+            viewEngine
+                .Setup(p => p.GetPage("~/Shared/Layout1.cshtml", "Layout2.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", layout2));
+
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -838,16 +1043,20 @@ namespace Microsoft.AspNet.Mvc.Razor
             });
             layout.Path = "Shared/Layout.cshtml";
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "_Layout"))
-                       .Returns(new RazorPageResult("_Layout", layout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(It.IsAny<string>(), "_Layout"))
+                .Returns(new RazorPageResult("_Layout", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "_Layout"))
+                .Returns(new RazorPageResult("_Layout", layout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -881,18 +1090,26 @@ namespace Microsoft.AspNet.Mvc.Razor
             });
             layout2.Path = "/Shared/Layout2.cshtml";
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "_Layout"))
-                       .Returns(new RazorPageResult("_Layout", layout1));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "_Layout2"))
-                       .Returns(new RazorPageResult("_Layout2", layout2));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(It.IsAny<string>(), "_Layout"))
+                .Returns(new RazorPageResult("_Layout1", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "_Layout"))
+                .Returns(new RazorPageResult("_Layout", layout1));
+            viewEngine
+                .Setup(p => p.GetPage("Shared/_Layout.cshtml", "_Layout2"))
+                .Returns(new RazorPageResult("_Layout2", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "_Layout2"))
+                .Returns(new RazorPageResult("_Layout2", layout2));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -914,7 +1131,6 @@ namespace Microsoft.AspNet.Mvc.Razor
                            "]]BodyContent" +
                            "foo-content" +
                            Environment.NewLine +
-                           "HtmlEncode[[]]" +
                            Environment.NewLine;
 
             var page = new TestableRazorPage(v =>
@@ -938,7 +1154,7 @@ namespace Microsoft.AspNet.Mvc.Razor
                     await writer.WriteLineAsync(htmlEncoder.Encode(v.RenderSection("foo").ToString()));
                 });
             });
-            nestedLayout.Path = "~/Shared/Layout2.cshtml";
+            nestedLayout.Path = "~/Shared/Layout1.cshtml";
 
             var baseLayout = new TestableRazorPage(v =>
             {
@@ -947,20 +1163,22 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.RenderBodyPublic();
                 v.Write(v.RenderSection("foo"));
             });
-            baseLayout.Path = "~/Shared/Layout1.cshtml";
+            baseLayout.Path = "~/Shared/Layout2.cshtml";
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout1.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "~/Shared/Layout2.cshtml"))
-                       .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(/*executingFilePath*/ null, "~/Shared/Layout1.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout1.cshtml", nestedLayout));
+            viewEngine
+                .Setup(p => p.GetPage("~/Shared/Layout1.cshtml", "~/Shared/Layout2.cshtml"))
+                .Returns(new RazorPageResult("~/Shared/Layout2.cshtml", baseLayout));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -1004,16 +1222,20 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.Write(v.RenderSection("foo"));
             });
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "layout-1"))
-                       .Returns(new RazorPageResult("layout-1", layout1));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(/*executingFilePath*/ null, "layout-1"))
+                .Returns(new RazorPageResult("layout-1", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "layout-1"))
+                .Returns(new RazorPageResult("layout-1", layout1));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -1054,16 +1276,20 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.Write(v.RenderSection("foo"));
             });
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "layout-1"))
-                       .Returns(new RazorPageResult("layout-1", layout1));
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage(/*executingFilePath*/ null, "layout-1"))
+                .Returns(new RazorPageResult("layout-1", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "layout-1"))
+                .Returns(new RazorPageResult("layout-1", layout1));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -1088,12 +1314,12 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.WriteLiteral("after-flush");
             });
 
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -1128,17 +1354,18 @@ namespace Microsoft.AspNet.Mvc.Razor
                 v.RenderBodyPublic();
                 v.Layout = "~/Shared/Layout2.cshtml";
             });
-            var viewEngine = new Mock<IRazorViewEngine>();
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
             var layoutPath = "~/Shared/Layout1.cshtml";
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), layoutPath))
-                       .Returns(new RazorPageResult(layoutPath, layoutPage));
+            viewEngine
+                .Setup(p => p.GetPage("/Views/TestPath/Test.cshtml", layoutPath))
+                .Returns(new RazorPageResult(layoutPath, layoutPage));
 
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act and Assert
@@ -1156,31 +1383,34 @@ namespace Microsoft.AspNet.Mvc.Razor
             var layoutExecuted = false;
             var count = -1;
             var feature = new Mock<IPageExecutionListenerFeature>(MockBehavior.Strict);
-            feature.Setup(f => f.DecorateWriter(It.IsAny<RazorTextWriter>()))
-                   .Returns(() =>
-                   {
-                       count++;
-                       if (count == 0)
-                       {
-                           return pageWriter;
-                       }
-                       else if (count == 1)
-                       {
-                           return layoutWriter;
-                       }
-                       throw new Exception();
-                   })
-                   .Verifiable();
+            feature
+                .Setup(f => f.DecorateWriter(It.IsAny<RazorTextWriter>()))
+                .Returns(() =>
+                {
+                    count++;
+                    if (count == 0)
+                    {
+                        return pageWriter;
+                    }
+                    else if (count == 1)
+                    {
+                        return layoutWriter;
+                    }
+                    throw new Exception();
+                })
+                .Verifiable();
 
             var pageContext = Mock.Of<IPageExecutionContext>();
-            feature.Setup(f => f.GetContext("/MyPage.cshtml", pageWriter))
-                    .Returns(pageContext)
-                    .Verifiable();
+            feature
+                .Setup(f => f.GetContext("/MyPage.cshtml", pageWriter))
+                .Returns(pageContext)
+                .Verifiable();
 
             var layoutContext = Mock.Of<IPageExecutionContext>();
-            feature.Setup(f => f.GetContext("/Layout.cshtml", layoutWriter))
-                    .Returns(layoutContext)
-                    .Verifiable();
+            feature
+                .Setup(f => f.GetContext("/Layout.cshtml", layoutWriter))
+                .Returns(layoutContext)
+                .Verifiable();
 
             var page = new TestableRazorPage(v =>
             {
@@ -1202,19 +1432,20 @@ namespace Microsoft.AspNet.Mvc.Razor
             });
             layout.Path = "/Layout.cshtml";
 
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "Layout"))
-                       .Returns(new RazorPageResult("Layout", layout));
-            var viewStartProvider = new Mock<IViewStartProvider>();
-            viewStartProvider.Setup(v => v.GetViewStartPages(It.IsAny<string>()))
-                             .Returns(Enumerable.Empty<IRazorPage>())
-                             .Verifiable();
-            var view = new RazorView(viewEngine.Object,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     viewStartProvider.Object,
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(p => p.GetPage("/MyPage.cshtml", "Layout"))
+                .Returns(new RazorPageResult("Layout", Enumerable.Empty<string>()));
+            viewEngine
+                .Setup(p => p.FindPage(It.IsAny<ActionContext>(), "Layout"))
+                .Returns(new RazorPageResult("/Layout.cshtml", layout));
+
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
             viewContext.HttpContext.Features.Set<IPageExecutionListenerFeature>(feature.Object);
 
@@ -1223,7 +1454,6 @@ namespace Microsoft.AspNet.Mvc.Razor
 
             // Assert
             feature.Verify();
-            viewStartProvider.Verify();
             Assert.True(layoutExecuted);
         }
 
@@ -1255,12 +1485,12 @@ namespace Microsoft.AspNet.Mvc.Razor
             });
             page.Path = "/MyPartialPage.cshtml";
 
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     Mock.Of<IViewStartProvider>(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: true);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
             viewContext.Writer = writer;
             viewContext.HttpContext.Features.Set<IPageExecutionListenerFeature>(feature.Object);
@@ -1274,10 +1504,8 @@ namespace Microsoft.AspNet.Mvc.Razor
             Assert.Equal("HtmlEncode[[Hello world]]", viewContext.Writer.ToString());
         }
 
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public async Task RenderAsync_DoesNotSetExecutionContextWhenListenerIsNotRegistered(bool isPartial)
+        [Fact]
+        public async Task RenderAsync_DoesNotSetExecutionContextWhenListenerIsNotRegistered()
         {
             // Arrange
             var executed = false;
@@ -1287,12 +1515,12 @@ namespace Microsoft.AspNet.Mvc.Razor
                 executed = true;
             });
 
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     Mock.Of<IViewStartProvider>(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial);
+            var view = new RazorView(
+                Mock.Of<IRazorViewEngine>(),
+                Mock.Of<IRazorPageActivator>(),
+                new IRazorPage[0],
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -1325,14 +1553,77 @@ namespace Microsoft.AspNet.Mvc.Razor
                 actualViewStart = v.Layout;
                 v.Layout = expectedPage;
             });
-            var viewEngine = Mock.Of<IRazorViewEngine>();
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath(/*executingFilePath*/ null, expectedViewStart))
+                .Returns(expectedViewStart);
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath(/*executingFilePath*/ null, expectedPage))
+                .Returns(expectedPage);
 
-            var view = new RazorView(viewEngine,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(viewStart1, viewStart2),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new[] { viewStart1, viewStart2 },
+                page,
+                new HtmlTestEncoder());
+            var viewContext = CreateViewContext(view);
+
+            // Act
+            await view.RenderAsync(viewContext);
+
+            // Assert
+            Assert.Equal(expectedViewStart, actualViewStart);
+            Assert.Equal(expectedPage, actualPage);
+        }
+
+        [Fact]
+        public async Task RenderAsync_CopiesLayoutPropertyFromViewStart_WithRelativePaths()
+        {
+            // Arrange
+            var expectedViewStart = "~/_Layout.cshtml";
+            var expectedPage = "~/Home/_Layout.cshtml";
+            string actualViewStart = null;
+            string actualPage = null;
+            var page = new TestableRazorPage(v =>
+            {
+                actualPage = v.Layout;
+
+                // Clear it out because we don't care about rendering the layout in this test.
+                v.Layout = null;
+            });
+
+            var viewStart1 = new TestableRazorPage(v =>
+            {
+                v.Layout = "_Layout.cshtml";
+            })
+            {
+                Path = "~/_ViewStart.cshtml",
+            };
+
+            var viewStart2 = new TestableRazorPage(v =>
+            {
+                actualViewStart = v.Layout;
+                v.Layout = "_Layout.cshtml";
+            })
+            {
+                Path = "~/Home/_ViewStart.cshtml",
+            };
+
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath("~/_ViewStart.cshtml", "_Layout.cshtml"))
+                .Returns("~/_Layout.cshtml");
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath("~/Home/_ViewStart.cshtml", "_Layout.cshtml"))
+                .Returns("~/Home/_Layout.cshtml");
+
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new[] { viewStart1, viewStart2 },
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -1363,14 +1654,20 @@ namespace Microsoft.AspNet.Mvc.Razor
                 actual = v.Layout;
                 v.Layout = null;
             });
-            var viewEngine = Mock.Of<IRazorViewEngine>();
+            var viewEngine = new Mock<IRazorViewEngine>(MockBehavior.Strict);
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath(/*executingFilePath*/ null, "Layout"))
+                .Returns("Layout");
+            viewEngine
+                .Setup(engine => engine.GetAbsolutePath(/*executingFilePath*/ null, /*pagePath*/ null))
+                .Returns<string>(null);
 
-            var view = new RazorView(viewEngine,
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(viewStart1, viewStart2),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: false);
+            var view = new RazorView(
+                viewEngine.Object,
+                Mock.Of<IRazorPageActivator>(),
+                new[] { viewStart1, viewStart2 },
+                page,
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
@@ -1381,71 +1678,44 @@ namespace Microsoft.AspNet.Mvc.Razor
         }
 
         [Fact]
-        public async Task IsPartial_IsSetToFalse_ForViewStartPageAndLayoutOfAView()
+        public async Task RenderAsync_RendersViewStartsInOrderInWhichTheyAreSpecified()
         {
             // Arrange
-            bool? isPartialPage = null;
-            bool? isPartialLayout = null;
-            bool? isPartialViewStart = null;
-
+            var expected = string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    "ViewStart1",
+                    "ViewStart2",
+                    "Page",
+                });
             var page = new TestableRazorPage(v =>
             {
-                isPartialPage = v.IsPartial;
+                v.WriteLiteral("Page");
             });
-            var viewStart = new TestableRazorPage(v =>
+            var viewStart1 = new TestableRazorPage(v =>
             {
-                v.Layout = "/Layout.cshtml";
-                isPartialViewStart = v.IsPartial;
+                v.WriteLiteral("ViewStart1" + Environment.NewLine);
             });
-            var layout = new TestableRazorPage(v =>
+            var viewStart2 = new TestableRazorPage(v =>
             {
-                isPartialLayout = v.IsPartial;
-                v.RenderBodyPublic();
+                v.WriteLiteral("ViewStart2" + Environment.NewLine);
             });
-            var viewEngine = new Mock<IRazorViewEngine>();
-            viewEngine.Setup(p => p.FindPage(It.IsAny<ActionContext>(), "/Layout.cshtml"))
-                       .Returns(new RazorPageResult("Layout", layout));
+            var viewEngine = Mock.Of<IRazorViewEngine>();
 
             var view = new RazorView(
-                viewEngine.Object,
+                viewEngine,
                 Mock.Of<IRazorPageActivator>(),
-                CreateViewStartProvider(viewStart),
+                new[] { viewStart1, viewStart2 },
                 page,
-                new HtmlTestEncoder(),
-                isPartial: false);
+                new HtmlTestEncoder());
             var viewContext = CreateViewContext(view);
 
             // Act
             await view.RenderAsync(viewContext);
 
             // Assert
-            Assert.False(isPartialPage.Value);
-            Assert.False(isPartialLayout.Value);
-            Assert.False(isPartialViewStart.Value);
-        }
-
-        [Fact]
-        public async Task IsPartial_IsSetToTrue_ForPartialView()
-        {
-            // Arrange
-            bool? isPartialPage = null;
-            var page = new TestableRazorPage(v =>
-            {
-                isPartialPage = v.IsPartial;
-            });
-            var view = new RazorView(Mock.Of<IRazorViewEngine>(),
-                                     Mock.Of<IRazorPageActivator>(),
-                                     CreateViewStartProvider(),
-                                     page,
-                                     new HtmlTestEncoder(),
-                                     isPartial: true);
-            var viewContext = CreateViewContext(view);
-
-            // Act
-            await view.RenderAsync(viewContext);
-
-            // Assert
-            Assert.True(isPartialPage.Value);
+            Assert.Equal(expected, viewContext.Writer.ToString());
         }
 
         private static TextWriter CreateBufferedWriter()
@@ -1468,17 +1738,6 @@ namespace Microsoft.AspNet.Mvc.Razor
                 Mock.Of<ITempDataDictionary>(),
                 new StringWriter(),
                 new HtmlHelperOptions());
-        }
-
-        private static IViewStartProvider CreateViewStartProvider(params IRazorPage[] viewStartPages)
-        {
-            viewStartPages = viewStartPages ?? new IRazorPage[0];
-            var viewStartProvider = new Mock<IViewStartProvider>();
-            viewStartProvider
-                .Setup(v => v.GetViewStartPages(It.IsAny<string>()))
-                .Returns(viewStartPages);
-
-            return viewStartProvider.Object;
         }
 
         private class TestableRazorPage : RazorPage

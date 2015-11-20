@@ -510,46 +510,58 @@ namespace Microsoft.AspNet.Mvc.ViewFeatures
             return RenderPartialCoreAsync(partialViewName, model, viewData, ViewContext.Writer);
         }
 
-        protected virtual IHtmlContent GenerateDisplay(ModelExplorer modelExplorer,
-                                                     string htmlFieldName,
-                                                     string templateName,
-                                                     object additionalViewData)
+        protected virtual IHtmlContent GenerateDisplay(
+            ModelExplorer modelExplorer,
+            string htmlFieldName,
+            string templateName,
+            object additionalViewData)
         {
-            var templateBuilder = new TemplateBuilder(_viewEngine,
-                                                      ViewContext,
-                                                      ViewData,
-                                                      modelExplorer,
-                                                      htmlFieldName,
-                                                      templateName,
-                                                      readOnly: true,
-                                                      additionalViewData: additionalViewData);
+            var templateBuilder = new TemplateBuilder(
+                _viewEngine,
+                ViewContext,
+                ViewData,
+                modelExplorer,
+                htmlFieldName,
+                templateName,
+                readOnly: true,
+                additionalViewData: additionalViewData);
 
             return templateBuilder.Build();
         }
 
-        protected virtual async Task RenderPartialCoreAsync(string partialViewName,
-                                                            object model,
-                                                            ViewDataDictionary viewData,
-                                                            TextWriter writer)
+        protected virtual async Task RenderPartialCoreAsync(
+            string partialViewName,
+            object model,
+            ViewDataDictionary viewData,
+            TextWriter writer)
         {
             if (partialViewName == null)
             {
                 throw new ArgumentNullException(nameof(partialViewName));
             }
 
-            // Determine which ViewData we should use to construct a new ViewData
-            var baseViewData = viewData ?? ViewData;
+            var viewEngineResult = _viewEngine.GetView(
+                ViewContext.ExecutingFilePath,
+                partialViewName,
+                isMainPage: false);
+            var originalLocations = viewEngineResult.SearchedLocations;
+            if (!viewEngineResult.Success)
+            {
+                viewEngineResult = _viewEngine.FindView(ViewContext, partialViewName, isMainPage: false);
+            }
 
-            var newViewData = new ViewDataDictionary(baseViewData, model);
-
-            var viewEngineResult = _viewEngine.FindPartialView(ViewContext, partialViewName);
             if (!viewEngineResult.Success)
             {
                 var locations = string.Empty;
-                if (viewEngineResult.SearchedLocations != null)
+                if (originalLocations.Any())
                 {
-                    locations = Environment.NewLine +
-                        string.Join(Environment.NewLine, viewEngineResult.SearchedLocations);
+                    locations = Environment.NewLine + string.Join(Environment.NewLine, originalLocations);
+                }
+
+                if (viewEngineResult.SearchedLocations.Any())
+                {
+                    locations +=
+                        Environment.NewLine + string.Join(Environment.NewLine, viewEngineResult.SearchedLocations);
                 }
 
                 throw new InvalidOperationException(
@@ -559,7 +571,12 @@ namespace Microsoft.AspNet.Mvc.ViewFeatures
             var view = viewEngineResult.View;
             using (view as IDisposable)
             {
+                // Determine which ViewData we should use to construct a new ViewData
+                var baseViewData = viewData ?? ViewData;
+
+                var newViewData = new ViewDataDictionary(baseViewData, model);
                 var viewContext = new ViewContext(ViewContext, view, newViewData, writer);
+
                 await viewEngineResult.View.RenderAsync(viewContext);
             }
         }
@@ -726,7 +743,7 @@ namespace Microsoft.AspNet.Mvc.ViewFeatures
                 return HtmlString.Empty;
             }
 
-            var checkboxContent = new BufferedHtmlContent().Append(checkbox);
+            var checkboxContent = new HtmlContentBuilder().Append(checkbox);
 
             if (ViewContext.FormContext.CanRenderAtEndOfForm)
             {
